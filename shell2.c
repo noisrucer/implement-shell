@@ -25,9 +25,10 @@ CUSTOM ERROR NUM
 static int fg_proc_num = 0;
 static int SIGUSR1_READY = 0; // For SIGUSR1 signal to mark the child process to be ready 
 
-static int* pid_list;
-static char** cmd_name_list;
-static int total_cmd_num;
+static int pid_list[100];
+static char* cmd_name_list[100];
+static int global_process_idx = 0;
+static int total_cmd_num = 100;
 
 /** int* pid_list = malloc(totalNumCmds * sizeof(int)); */
 /** char** cmd_name_list = malloc(totalNumCmds * sizeof(char*)); */
@@ -313,7 +314,7 @@ int checkStandaloneTimeX(char** commands, int numCmds) {
 char* useBackground(char* input, int* bgErrorFlag, int* useBg) {
     // "   ls | grep cs  &  " -> "ls | grep cs"
     char* trimmed_input = trim(input); // "ls | grep cs &"
-    int trimmed_len = strlen(input);
+    int trimmed_len = strlen(trimmed_input);
 
     // Invalid background usage
     for (int i = 0; i < trimmed_len; i++) {
@@ -369,7 +370,7 @@ void sigusr1(int sig) {
 
 char* getCmdNameByPid(int pid) {
     int loc;
-    for (int i = 0; i < total_cmd_num; i++) {
+    for (int i = 0; i < global_process_idx; i++) {
         if (pid_list[i] == pid) {
             loc = i;
             break;
@@ -379,6 +380,24 @@ char* getCmdNameByPid(int pid) {
     return cmd_name_list[loc];
 }
 
+char* getLastCmd(char* input, char delim) {
+    // For example, input: "./A/B/C/loop_3" or just "loop_3" -> return "loop_3"
+    int len = strlen(input);
+    int delim_loc = -1;
+    
+    // Find the rightmost delim location
+    for(int i = len - 1; i >= 0; i--) {
+        if (input[i] == delim) {
+            delim_loc = i;
+            break;
+        }
+    }
+
+    if (delim_loc == -1) return input;
+    return input + delim_loc + 1;
+    
+}
+
 void sigchld(int sig) {
     siginfo_t infop;
     int waitidResult;
@@ -386,32 +405,21 @@ void sigchld(int sig) {
 
     while ((waitidResult = waitid(P_ALL, 0, &infop, WNOHANG | WNOWAIT | WEXITED)) >= 0) {
         pid_t pid = infop.si_pid;
-        char* cmd_name = getCmdNameByPid((int)pid);
-
-        // Get only the last part if it's in the path
-        char* token = strtok(cmd_name, "/");
-        char* last_cmd = token;
-
-        while(token != NULL) {
-            strcpy(last_cmd, token);
-            token = strtok(NULL, "/");
-        }
-
-        printf("[BG] pid: %d\n", pid);
-        printf("BG: cmd_name: %s\n", cmd_name);
-
 		if (pid == 0) {
 			break;
 		}
+        
+        char* cmd_name = getCmdNameByPid((int)pid);
+        char* last_cmd = getLastCmd(cmd_name, '/');
         fflush(stdout);
-        /** printf("\n[%d] Done\n", pid); */
         waitpid(pid, &status, 0);
 
         if (WIFEXITED(status)) {
             int statusCode = WEXITSTATUS(status);
 
             if (statusCode == 0) {
-                printf("\n[%d] Done\n", pid);
+                printf("\n[%d] %s Done\n", pid, last_cmd);
+                /** printf("\n[%d] %s Done\n", pid, last_cmd); */
             } else {
                 // background process failure
             }
@@ -433,8 +441,6 @@ int main(int argc, char* argv[]) {
     signal(SIGCHLD, &sigchld);
 
     while (1) {
-        free(pid_list);
-        free(cmd_name_list);
 
         printf("While!\n");
         SIGUSR1_READY = 0;
@@ -485,11 +491,6 @@ int main(int argc, char* argv[]) {
         int usetx_global = 0;
         char* timeX_parsed_input = useTimeX(bg_parsed_input, &usetx_global);
 
-        // Check timeX & background together
-        /** if (useTimeXBgTogether(commands, totalNumCmds, useBg)) { */
-        /**     printf("3230shell: \"timeX\" cannot be run in background mode\n"); */
-        /**     continue; */
-        /** } */
         if (usetx_global && useBg) {
             printf("3230shell: \"timeX\" cannot be run in background mode\n");
             continue;
@@ -498,7 +499,7 @@ int main(int argc, char* argv[]) {
         int totalNumCmds;
         int errFlag;
         char** commands = parse_input(bg_parsed_input, &totalNumCmds, &errFlag); 
-        total_cmd_num = totalNumCmds; // for global variable (background process handling)
+        /** total_cmd_num = totalNumCmds; // for global variable (background process handling) */
 
         // Check for invalid pipe usage
         if (errFlag == 0) {
@@ -525,8 +526,8 @@ int main(int argc, char* argv[]) {
         }
         
         // Track {pid : command name} for handling the background process later
-        pid_list = malloc(totalNumCmds * sizeof(int));
-        cmd_name_list = malloc(totalNumCmds * sizeof(char*));
+        /** pid_list = malloc(total_cmd_num * sizeof(int)); */
+        /** cmd_name_list = malloc(total_cmd_num * sizeof(char*)); */
 
         // Store timeX messages to print later
         char** timeXMessages = malloc(totalNumCmds * sizeof(char*));
@@ -544,7 +545,6 @@ int main(int argc, char* argv[]) {
             int usetx = 0, invalidtx = 0;
             char* firstCmd;
             char** argVec = parse_single_cmd(*(commands + idx), &usetx, &invalidtx, &firstCmd);
-            printf("firstCmd: %s\n", firstCmd);
 
             fg_proc_num = 0;
 
@@ -552,7 +552,6 @@ int main(int argc, char* argv[]) {
             pid_t pid = fork();
 
             if (pid == 0) {
-                
                 if (useBg) {
                     setpgid(0, 0);
                 }
@@ -578,12 +577,9 @@ int main(int argc, char* argv[]) {
                     return -1;
                 }
             } else {
-                pid_list[idx] = pid;
-                cmd_name_list[idx] = malloc((strlen(firstCmd) + 1) * sizeof(char));
-                strcpy(cmd_name_list[idx], firstCmd);
-                cmd_name_list[idx][strlen(firstCmd)] = '\0';
-                printf("[Added] pid_list[%d]: %d\n", idx, pid);
-                printf("[Added] cmd_name_list[%d]: %s\n", idx, cmd_name_list[idx]);
+                pid_list[global_process_idx] = (int)pid;
+                cmd_name_list[global_process_idx] = firstCmd;
+                global_process_idx++;
 
                 kill(pid, SIGUSR1); // send SIGUSR1 to make the child process "ready"
                 fg_proc_num++;
