@@ -172,7 +172,7 @@ int main(int argc, char* argv[]) {
 
         // Check standalone timeX for the whole command line (that is, the input command line is only timeX)
         if (strcmp(getFirstCommand(bg_parsed_input), "timeX") == 0 && findTokenNum(bg_parsed_input) == 1) {
-            printf("3230shell: \"timeX\" cannot be a standalone command");
+            printf("3230shell: \"timeX\" cannot be a standalone command\n");
             continue;
         }
 
@@ -192,18 +192,18 @@ int main(int argc, char* argv[]) {
 
         // Check for invalid pipe usage
         if (errFlag == 0) {
-            printf("3230shell: should not have | as the first or last character");
+            printf("3230shell: should not have | as the first or last character\n");
             continue;
         }
 
         if (errFlag == 1) {
-            printf("3230shell: should not have two consecutive | without in-between command");
+            printf("3230shell: should not have two consecutive | without in-between command\n");
             continue;
         }
 
         // Check for invalid exit
         if (checkInvalidExit(commands, totalNumCmds)) {
-            printf("3230shell: \"exit\" with other arguments!!!");
+            printf("3230shell: \"exit\" with other arguments!!!\n");
             continue;
         }
 
@@ -529,7 +529,6 @@ char** parse_input (char* input, int* total_num_Cmds, int* errFlag) {
 
         // If the in-between token is empty, then it's using two consecutive ||s
         if (isEmpty(temp) || isAllSpaces(temp)) {
-            printf("3230shell: should not have two consecutive | without in-between command\n");
             *errFlag = 1;
             return NULL;
         }
